@@ -17,8 +17,8 @@ TARGET_DOMAIN = os.getenv(
     "fixupx.com"
 )
 
-# true = 删除原消息，然后发送转换后的消息
-# false = 保留原消息，只发送转换后的消息
+# true  = 删除原消息，再发送转换后的消息
+# false = 保留原消息，再发送转换后的消息
 DELETE_ORIGINAL = os.getenv(
     "DELETE_ORIGINAL",
     "true"
@@ -36,11 +36,9 @@ client = discord.Client(intents=intents)
 
 
 # =========================
-# URL 替换
+# URL 匹配
 # =========================
 
-# 只匹配完整的 http/https URL，
-# 严格匹配指定的 Nitter 域名。
 url_pattern = re.compile(
     rf"https?://{re.escape(SOURCE_DOMAIN)}(?P<rest>/[^\s<>\"]*)",
     re.IGNORECASE
@@ -48,8 +46,7 @@ url_pattern = re.compile(
 
 
 def replace_urls(text: str) -> str:
-    """将 Nitter 域名替换成 FixupX，路径保持不变。"""
-
+    """只替换指定的 Nitter 域名，后面的路径保持不变。"""
     return url_pattern.sub(
         lambda match: (
             "https://"
@@ -78,32 +75,36 @@ async def on_ready():
 @client.event
 async def on_message(message: discord.Message):
 
-    # 忽略 Bot 自己发送的消息，
-    # 防止无限循环。
-    if message.author.bot:
+    # 只忽略 Bot 自己发送的消息。
+    # 不能写 message.author.bot，
+    # 因为 MonitoRSS 本身也是 Bot / Webhook。
+    if client.user and message.author.id == client.user.id:
         return
 
-    # 消息没有文字就不处理。
+    # 没有文字内容就不处理
     if not message.content:
         return
 
-    # 执行域名替换。
+    # 替换 Nitter 域名
     converted = replace_urls(message.content)
 
-    # 没有匹配到 Nitter 链接。
+    # 没有匹配到目标域名
     if converted == message.content:
         return
 
     try:
-        # 如果开启删除原消息，
-        # 先发送转换结果，再删除原消息。
+        # 发送转换后的链接
         await message.channel.send(converted)
 
+        # 删除原消息
         if DELETE_ORIGINAL:
             await message.delete()
 
     except discord.Forbidden:
-        print("权限不足：请确认 Bot 有 Send Messages / Embed Links / Manage Messages 权限。")
+        print(
+            "权限不足，请确认 Bot 在该频道拥有："
+            "View Channel / Send Messages / Embed Links / Manage Messages"
+        )
 
     except discord.HTTPException as e:
         print(f"Discord API 错误：{e}")
